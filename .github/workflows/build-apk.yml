@@ -65,6 +65,36 @@ jobs:
           gradle-version: "8.7"
           cache-provider: basic
 
+      - name: Force Java and Kotlin JVM target to 17
+        shell: bash
+        run: |
+          set -e
+
+          PROJECT=$(cat android_project_path.txt)
+
+          cat > "$PROJECT/blockit-build-fix.gradle" <<'EOF'
+          allprojects {
+              tasks.withType(JavaCompile).configureEach {
+                  sourceCompatibility = "17"
+                  targetCompatibility = "17"
+              }
+
+              afterEvaluate {
+                  tasks.matching {
+                      it.name.toLowerCase().contains("kotlin")
+                  }.configureEach {
+                      try {
+                          kotlinOptions.jvmTarget = "17"
+                      } catch (Exception ignored) {
+                      }
+                  }
+              }
+          }
+          EOF
+
+          echo "Created JVM target compatibility fix:"
+          cat "$PROJECT/blockit-build-fix.gradle"
+
       - name: Build Blockit APK
         shell: bash
         run: |
@@ -76,7 +106,28 @@ jobs:
 
           cd "$PROJECT"
 
-          gradle --no-daemon assembleDebug
+          gradle \
+            --no-daemon \
+            --init-script blockit-build-fix.gradle \
+            assembleDebug
+
+      - name: Find generated APK
+        shell: bash
+        run: |
+          set -e
+
+          echo "Searching for APK..."
+
+          find extracted -type f -name "*.apk" -print
+
+          APK=$(find extracted -type f -path "*/app/build/outputs/apk/debug/*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK was not generated"
+            exit 1
+          fi
+
+          echo "APK found: $APK"
 
       - name: Upload Blockit APK
         uses: actions/upload-artifact@v4
